@@ -15,3 +15,10 @@ is more powerful than the application of the Wilcoxon rank-sum /
 Mann-Whitney test between more than two groups of data.
 Cuzick J. A Wilcoxon-Type Test for Trend. Statistics in Medicine
 1985;4:87-89.
+
+           Created by Giuseppe Cardillo
+           giuseppe.cardillo-edta@poste.it
+
+To cite this file, this would be an appropriate format:
+Cardillo G. (2008) Cuzick's test: A Wilcoxon-Type Test for Trend
+http://www.mathworks.com/matlabcentral/fileexchange/22059
