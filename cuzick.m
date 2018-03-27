@@ -16,7 +16,7 @@ function cuzick(x,varargin)
 % Cuzick J. A Wilcoxon-Type Test for Trend. Statistics in Medicine
 % 1985;4:87-89.
 %
-% Syntax: 	cuzick(x,alpha,score)
+% Syntax: 	cuzick(x,score)
 %      
 %     Inputs:
 %           X - Nx2 data matrix 
