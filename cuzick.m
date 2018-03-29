@@ -94,7 +94,7 @@ p = inputParser;
 addRequired(p,'x',@(x) validateattributes(x,{'numeric'},{'real','finite','nonnan','nonempty','ncols',2}));
 addOptional(p,'score',[],@(x) isempty(x) || (all(isnumeric(x(:))) && isrow(x) && all(isreal(x(:))) && all(isfinite(x(:))) && ~all(isnan(x(:))) && all(x(:)>0) && all(fix(x(:))==x(:))));
 parse(p,x,varargin{:});
-assert(all(x(:,2) == round(x(:,2))),'Warning: all elements of column 2 of input matrix must be whole numbers')
+assert(all(x(:,2) == fix(x(:,2))),'Warning: all elements of column 2 of input matrix must be whole numbers')
 score=p.Results.score;
 clear p
 k=max(x(:,2)); %number of groups
