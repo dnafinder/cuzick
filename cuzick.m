@@ -1,28 +1,56 @@
-function cuzick(x,varargin)
+function STATS = cuzick(x,varargin)
 % CUZICK: Perform the Cuzick's test on trend.
 % This function provides a Wilcoxon-type test for trend across a group of
 % three or more independent random samples.
+%
 % Assumptions:
 % - Data must be at least ordinal
 % - Groups must be selected in a meaningful order i.e. ordered
 % If you do not choose to enter your own group scores then scores are
-% allocated uniformly (1 ... n) in order of selection of the n groups.
+% allocated uniformly (1 ... k) in order of selection of the k groups.
 % The null hypothesis of no trend across the groups T will have mean E(T),
-% variance var(T) and the null hypothesis is tested using the normalised
+% variance Var(T) and the null hypothesis is tested using the normalised
 % test statistic z.
 % A logistic distribution is assumed for errors. Please note that this test
-% is more powerful than the application of the Wilcoxon rank-sum /
-% Mann-Whitney test between more than two groups of data.
+% is often more powerful than applying the Wilcoxon rank-sum /
+% Mann-Whitney test pairwise between more than two groups of data.
 % Cuzick J. A Wilcoxon-Type Test for Trend. Statistics in Medicine
 % 1985;4:87-89.
 %
-% Syntax: 	cuzick(x,score)
-%      
+% Syntax:
+%     STATS = cuzick(x)
+%     STATS = cuzick(x, score)
+%     STATS = cuzick(x, score, 'Display', DISPLAY)
+%
 %     Inputs:
-%           X - Nx2 data matrix 
-%           SCORE - order of selection of the groups - default 1:1:max(x(:,2))
+%           X - N-by-2 data matrix:
+%               X(:,1) = observations
+%               X(:,2) = integer group labels
+%               Group labels must be consecutive integers 1,2,...,k without gaps.
+%
+%           SCORE - optional vector of numeric scores (real values) associated
+%                   with each group, length k. If omitted or empty, default
+%                   scores are 1,2,...,k, where k is the number of groups.
+%                   These scores encode the ordering (and spacing) of groups
+%                   for the trend test. Scores need not be integers, but
+%                   must not all be equal.
+%
+%           'Display' - logical flag (true/false), default true.
+%                      If true, prints the group summary and the Cuzick
+%                      statistics. If false, no output is printed and only
+%                      the STATS structure is returned.
+%
 %     Outputs:
-%           - Cuzick's statistics and p-value
+%           STATS - structure with fields:
+%               STATS.GroupTable  : table with Group, Score, Samples, Ranks_sum
+%               STATS.L           : sum of score(i)*n_i across groups
+%               STATS.T           : sum of score(i)*R_i across groups
+%               STATS.E           : expected value of T under H0
+%               STATS.Var         : variance of T under H0
+%               STATS.z           : normalised test statistic
+%               STATS.pvalue      : one-tailed p-value (right tail)
+%               STATS.tail        : 'right'
+%               STATS.TiesFactor  : ties adjustment factor (2*t from tiedrank)
 %
 %   Example:
 % Mice were inoculated with cell lines, CMT 64 to 181, which had been
@@ -51,8 +79,8 @@ function cuzick(x,varargin)
 %    g=[ones(1,8) 2.*ones(1,10) 3.*ones(1,9) 4.*ones(1,9) 5.*ones(1,9)];
 %    x=[d' g'];
 %
-%           Calling on Matlab the function: cuzick(x)
-% (in this case, the groups are automated scored from 1 to 5)
+%           Calling on Matlab the function: STATS = cuzick(x)
+% (in this case, the groups are automatically scored from 1 to 5)
 %
 %           Answer is:
 %
@@ -83,53 +111,116 @@ function cuzick(x,varargin)
 % these malignant cell lines in this order.
 %
 %           Created by Giuseppe Cardillo
-%           giuseppe.cardillo-edta@poste.it
+%           giuseppe.cardillo.75@gmail.com
 %
 % To cite this file, this would be an appropriate format:
-% Cardillo G. (2008) Cuzick's test: A Wilcoxon-Type Test for Trend
-% http://www.mathworks.com/matlabcentral/fileexchange/22059
+% Cardillo G. (2008). Cuzick's test: A Wilcoxon-Type Test for Trend.
+% https://github.com/dnafinder/cuzick
 
-%Input Error handling
+% Input Error handling
 p = inputParser;
-addRequired(p,'x',@(x) validateattributes(x,{'numeric'},{'real','finite','nonnan','nonempty','ncols',2}));
-addOptional(p,'score',[],@(x) isempty(x) || (all(isnumeric(x(:))) && isrow(x) && all(isreal(x(:))) && all(isfinite(x(:))) && ~all(isnan(x(:))) && all(x(:)>0) && all(fix(x(:))==x(:))));
+addRequired(p,'x',@(y) validateattributes(y,{'numeric'}, ...
+    {'real','finite','nonnan','nonempty','ncols',2}));
+addOptional(p,'score',[],@(s) isempty(s) || ...
+    (isnumeric(s) && isvector(s) && all(isreal(s(:))) && ...
+     all(isfinite(s(:))) && ~all(isnan(s(:)))));
+addParameter(p,'Display',true, ...
+    @(d) (islogical(d) || (isnumeric(d) && isscalar(d) && (d==0 || d==1))));
 parse(p,x,varargin{:});
-assert(all(x(:,2) == fix(x(:,2))),'Warning: all elements of column 2 of input matrix must be whole numbers')
-score=p.Results.score;
+x       = p.Results.x;
+score   = p.Results.score;
+Display = logical(p.Results.Display);
 clear p
-k=max(x(:,2)); %number of groups
-if isempty(score) %check score
-   score=1:1:k;
+
+% Check that group labels are integers and consecutive 1..k
+assert(all(x(:,2) == fix(x(:,2))), ...
+    'cuzick:InvalidGroupLabels', ...
+    'All elements of column 2 must be whole numbers (integer group labels).');
+
+groups = x(:,2);
+ug     = unique(groups);
+k      = numel(ug); % number of groups
+
+assert(min(ug)==1 && max(ug)==k && k==max(groups), ...
+    'cuzick:ConsecutiveGroups', ...
+    'Group labels in column 2 must be consecutive integers from 1 to k without gaps.');
+
+% Check/define score (numeric scores for each group)
+if isempty(score)
+    score = 1:k;
+else
+    score = score(:).'; % ensure row vector
+    assert(numel(score)==k, ...
+        'cuzick:InvalidScoreLength', ...
+        'Length of score must match the number of groups (k).');
+    % Ensure scores are not all equal (degenerate trend)
+    assert(numel(unique(score)) > 1, ...
+        'cuzick:ConstantScore', ...
+        'score must not be constant: use at least two distinct values.');
 end
 
-tr=repmat('-',1,80);% set divisor
-disp('CUZICK''S TEST FOR NON PARAMETRIC TREND ANALYSIS')
-disp(tr)
-ni=crosstab(x(:,2)); %elements for each group
-N=sum(ni); %total elements
-R=ones(1,k); L=R; T=R; %vectors preallocation
-[r,t]=tiedrank(x(:,1)); %ranks and ties
+tr = repmat('-',1,80); % divisor
 
-for I=1:k
-    R(I)=sum(r(x(:,2)==I)); %sum of ranks of each group
-    L(I)=score(I)*ni(I);
-    T(I)=score(I)*R(I);
-end
-disp(table((1:k)',score',ni,R','VariableNames',{'Group','Score','Samples','Ranks_sum'}))
-if logical(t) %if there are ties
-    fprintf('Ties factor: %d\n',2*t)
-end
-disp(tr); disp(' ')
-clear idx r %clear unnecessary variables
+% Group sizes
+ni = crosstab(groups); % elements for each group
+N  = sum(ni);          % total elements
 
-%For the null hypothesis of no trend across the groups;
-%T will have mean E(T), variance var(T) and the null hypothesis is tested
-%using the normalised test statistic z.
-Lval=sum(L); Tval=sum(T);
-Et=Lval*(N+1)/2; %mean of T
-Vart=((N*sum(score.*L)-Lval^2)*(N+1)/12)-t/6; %Variance of T
-z=abs(Tval-Et)/sqrt(Vart); %z statistic
-p=1-0.5*erfc(-z/realsqrt(2)); %p-value
-disp('CUZICK''S STATISTICS')
-disp(tr)
-disp(table(Lval,Tval,Et,Vart,z,p,'VariableNames',{'L','T','E','Var','z','one_tailed_p_values'}))
+% Ranks and ties from pooled data
+[r,t] = tiedrank(x(:,1)); % r = ranks, t = ties adjustment factor
+
+% Preallocate vectors
+R = zeros(1,k); % sum of ranks per group
+L = zeros(1,k); % sum of score(i)*n_i per group
+T = zeros(1,k); % sum of score(i)*R_i per group
+
+for I = 1:k
+    R(I) = sum(r(groups==I)); % sum of ranks of each group
+    L(I) = score(I) * ni(I);
+    T(I) = score(I) * R(I);
+end
+
+GroupTable = table((1:k)', score', ni, R', ...
+    'VariableNames',{'Group','Score','Samples','Ranks_sum'});
+
+if Display
+    disp('CUZICK''S TEST FOR NON PARAMETRIC TREND ANALYSIS')
+    disp(tr)
+    disp(GroupTable)
+    if t > 0
+        fprintf('Ties factor: %d\n', 2*t);
+    end
+    disp(tr); 
+    disp(' ')
+end
+
+% For the null hypothesis of no trend across the groups;
+% T will have mean E(T), variance Var(T) and the null hypothesis is tested
+% using the normalised test statistic z.
+Lval = sum(L);
+Tval = sum(T);
+Et   = Lval * (N+1) / 2; % mean of T under H0
+Vart = ((N*sum(score.*L) - Lval^2) * (N+1) / 12) - t/6; % variance of T under H0
+z    = abs(Tval - Et) / sqrt(Vart); % z statistic
+
+% One-tailed p-value from standard normal approximation (right tail)
+p = 1 - normcdf(z);
+
+if Display
+    disp('CUZICK''S STATISTICS')
+    disp(tr)
+    disp(table(Lval,Tval,Et,Vart,z,p, ...
+        'VariableNames',{'L','T','E','Var','z','one_tailed_p_values'}))
+end
+
+% Build output structure
+STATS = struct();
+STATS.GroupTable = GroupTable;
+STATS.L          = Lval;
+STATS.T          = Tval;
+STATS.E          = Et;
+STATS.Var        = Vart;
+STATS.z          = z;
+STATS.pvalue     = p;
+STATS.tail       = 'right';
+STATS.TiesFactor = 2*t;
+end
